@@ -1,0 +1,21 @@
+[package]
+name = "drogue-http-client"
+version = "0.1.0"
+authors = ["Jens Reimann <jreimann@redhat.com>"]
+edition = "2018"
+license = "Apache-2.0"
+
+[dependencies]
+
+drogue-network = "0.2"
+
+heapless = "0.5"
+httparse = { version = "1", default-features = false }
+
+log = "0.4"
+
+[dev-dependencies]
+env_logger = "0.7"
+
+[patch.crates-io]
+drogue-network = { path = "../drogue-network" }
