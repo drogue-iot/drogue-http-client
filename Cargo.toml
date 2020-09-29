@@ -13,6 +13,7 @@ heapless = "0.5"
 httparse = { version = "1", default-features = false }
 
 log = "0.4"
+nb = "1"
 
 [dev-dependencies]
 env_logger = "0.7"

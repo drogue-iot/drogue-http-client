@@ -1,5 +1,7 @@
 #![no_std]
 
+pub mod tcp;
+
 use core::fmt::Write;
 use heapless::{ArrayLength, String, Vec};
 use httparse::Status;
@@ -26,7 +28,7 @@ impl<'a> Write for SinkWrapper<'a> {
     }
 }
 
-impl<N> Sink for &mut Vec<u8, N>
+impl<N> Sink for Vec<u8, N>
 where
     N: ArrayLength<u8>,
 {
@@ -45,26 +47,21 @@ enum State {
     UnlimitedPayload,
 }
 
-pub struct HttpConnection<N, S>
+pub struct HttpConnection<IN>
 where
-    N: ArrayLength<u8>,
-    S: Sink,
+    IN: ArrayLength<u8>,
 {
-    // sink
-    sink: S,
     // inbound transport buffer
-    buffer: Vec<u8, N>,
+    inbound: Vec<u8, IN>,
 }
 
-impl<N, S> HttpConnection<N, S>
+impl<IN> HttpConnection<IN>
 where
-    N: ArrayLength<u8>,
-    S: Sink,
+    IN: ArrayLength<u8>,
 {
-    pub fn new(sink: S) -> Self {
+    pub fn new() -> Self {
         HttpConnection {
-            sink,
-            buffer: Vec::new(),
+            inbound: Vec::new(),
         }
     }
 
@@ -72,7 +69,7 @@ where
         self,
         method: &'static str,
         path: &'static str,
-    ) -> RequestBuilder<'req, N, S, NoOpResponseHandler> {
+    ) -> RequestBuilder<'req, IN, NoOpResponseHandler> {
         log::debug!("Begin new request - method: {}, path: {}", method, path);
 
         RequestBuilder {
@@ -84,39 +81,59 @@ where
         }
     }
 
-    pub fn post<'req>(self, path: &'static str) -> RequestBuilder<'req, N, S, NoOpResponseHandler> {
+    pub fn post<'req>(self, path: &'static str) -> RequestBuilder<'req, IN, NoOpResponseHandler> {
         self.begin("POST", path)
     }
 
-    pub(crate) fn send_request(
+    pub(crate) fn send_request<S, OUT>(
         &mut self,
+        sink: &mut S,
         method: &str,
         path: &str,
         headers: Option<&[(&str, &str)]>,
         payload: Option<&[u8]>,
-    ) {
-        // FIXME: handle write errors
-        {
-            let mut sw = &mut SinkWrapper(&mut self.sink);
-            write!(sw, "{} {} HTTP/1.1\r\n", method, path);
-            if let Some(headers) = headers {
-                for header in headers {
-                    write!(sw, "{}: {}\r\n", header.0, header.1);
-                }
-            }
-            write!(sw, "\r\n");
-        }
+    ) -> Result<(), ()>
+    where
+        S: Sink,
+        OUT: ArrayLength<u8>,
+    {
+        let mut out = Vec::<u8, OUT>::new();
+
+        // create headers
+        self.create_request_headers(&mut out, method, path, headers, payload.map(|b| b.len()))
+            .map_err(|_| ())?;
+
+        // send headers
+        sink.send(&out)?;
+
+        // send payload
         if let Some(payload) = payload {
-            self.sink.send(payload);
+            sink.send(payload)?;
         }
+
+        Ok(())
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn with_sink<F>(&mut self, mut f: F)
-    where
-        F: FnMut(&mut S),
-    {
-        f(&mut self.sink)
+    fn create_request_headers(
+        &self,
+        w: &mut dyn core::fmt::Write,
+        method: &str,
+        path: &str,
+        headers: Option<&[(&str, &str)]>,
+        content_length: Option<usize>,
+    ) -> Result<(), core::fmt::Error> {
+        write!(w, "{} {} HTTP/1.1\r\n", method, path)?;
+        if let Some(headers) = headers {
+            if let Some(content_length) = content_length {
+                write!(w, "{}: {}\r\n", "Content-Length", content_length)?;
+            }
+            for header in headers {
+                write!(w, "{}: {}\r\n", header.0, header.1)?;
+            }
+        }
+        write!(w, "\r\n")?;
+
+        Ok(())
     }
 
     pub(crate) fn closed(&mut self) {
@@ -143,23 +160,21 @@ pub trait ResponseHandler {
     fn more_payload(&mut self, payload: Result<Option<&[u8]>, ()>);
 }
 
-pub struct RequestBuilder<'req, N, S, R>
+pub struct RequestBuilder<'req, IN, R>
 where
-    N: ArrayLength<u8>,
-    S: Sink,
+    IN: ArrayLength<u8>,
     R: ResponseHandler,
 {
-    connection: HttpConnection<N, S>,
+    connection: HttpConnection<IN>,
     method: &'static str,
     path: &'static str,
     headers: Option<&'req [(&'req str, &'req str)]>,
     handler: R,
 }
 
-impl<'req, N, S, R> RequestBuilder<'req, N, S, R>
+impl<'req, IN, R> RequestBuilder<'req, IN, R>
 where
-    N: ArrayLength<u8>,
-    S: Sink,
+    IN: ArrayLength<u8>,
     R: ResponseHandler,
 {
     pub fn headers(mut self, headers: &'req [(&'req str, &'req str)]) -> Self {
@@ -167,7 +182,7 @@ where
         self
     }
 
-    pub fn handler<RN: ResponseHandler>(self, handler: RN) -> RequestBuilder<'req, N, S, RN> {
+    pub fn handler<RN: ResponseHandler>(self, handler: RN) -> RequestBuilder<'req, IN, RN> {
         RequestBuilder {
             connection: self.connection,
             headers: self.headers,
@@ -177,13 +192,22 @@ where
         }
     }
 
-    pub fn execute(self) -> Request<N, S, R> {
-        self.execute_with(None)
+    pub fn execute<S, OUT>(self, sink: &mut S) -> Request<IN, R>
+    where
+        S: Sink,
+        OUT: ArrayLength<u8>,
+    {
+        self.execute_with::<S, OUT>(sink, None)
     }
 
-    pub fn execute_with(mut self, payload: Option<&[u8]>) -> Request<N, S, R> {
+    pub fn execute_with<S, OUT>(mut self, sink: &mut S, payload: Option<&[u8]>) -> Request<IN, R>
+    where
+        S: Sink,
+        OUT: ArrayLength<u8>,
+    {
+        // FIXME: handle error
         self.connection
-            .send_request(self.method, self.path, self.headers, payload);
+            .send_request::<S, OUT>(sink, self.method, self.path, self.headers, payload);
         let connection = self.connection;
         let handler = self.handler;
         Request {
@@ -195,14 +219,13 @@ where
     }
 }
 
-pub struct Request<N, S, R>
+pub struct Request<IN, R>
 where
-    N: ArrayLength<u8>,
-    S: Sink,
+    IN: ArrayLength<u8>,
     R: ResponseHandler,
 {
     // connection
-    connection: HttpConnection<N, S>,
+    connection: HttpConnection<IN>,
     // current handler
     handler: R,
     // current state
@@ -211,10 +234,9 @@ where
     processed_bytes: usize,
 }
 
-impl<N, S, R> Request<N, S, R>
+impl<IN, R> Request<IN, R>
 where
-    N: ArrayLength<u8>,
-    S: Sink,
+    IN: ArrayLength<u8>,
     R: ResponseHandler,
 {
     /// Check if the request is processed completely
@@ -236,16 +258,16 @@ where
     }
 
     fn push_header(&mut self, data: Result<Option<&[u8]>, ()>) {
-        log::debug!("Current data: {:?}", from_utf8(&self.connection.buffer));
+        log::debug!("Current data: {:?}", from_utf8(&self.connection.inbound));
 
         match data {
             Ok(Some(data)) => {
-                self.connection.buffer.extend_from_slice(data).ok();
+                self.connection.inbound.extend_from_slice(data).ok();
 
                 let mut headers = [httparse::EMPTY_HEADER; 16];
                 let mut response = httparse::Response::new(&mut headers);
 
-                match response.parse(&self.connection.buffer) {
+                match response.parse(&self.connection.inbound) {
                     Ok(Status::Complete(len)) => {
                         log::debug!("Completed({})", len);
 
@@ -276,7 +298,7 @@ where
 
                         // clear connection buffer
 
-                        let buffer_len = self.connection.buffer.len();
+                        let buffer_len = self.connection.inbound.len();
                         let data_len = data.len();
 
                         log::debug!("Len = {}, dLen = {}, bLen = {}", len, data_len, buffer_len);
@@ -295,7 +317,7 @@ where
 
                         // clear buffer
 
-                        self.connection.buffer.clear();
+                        self.connection.inbound.clear();
                     }
                     Ok(Status::Partial) => {}
                     Err(e) => {
@@ -323,7 +345,7 @@ where
         match data {
             Ok(Some(data)) => {
                 // FIXME: handle error
-                self.connection.buffer.extend_from_slice(data);
+                self.connection.inbound.extend_from_slice(data);
             }
             Ok(None) | Err(_) => self.connection.closed(),
         }
@@ -362,7 +384,7 @@ where
         self.push(Ok(None))
     }
 
-    pub fn complete(self) -> (HttpConnection<N, S>, R) {
+    pub fn complete(self) -> (HttpConnection<IN>, R) {
         (self.connection, self.handler)
     }
 }
@@ -458,7 +480,7 @@ mod test {
         init();
 
         let mut sink_buffer = Vec::<u8, U1024>::new();
-        let con = HttpConnection::<U1024, _>::new(&mut sink_buffer);
+        let con = HttpConnection::<U1024>::new();
 
         let headers = [("Content-Type", "text/json")];
 
@@ -468,7 +490,7 @@ mod test {
             con.post("/foo.bar")
                 .headers(&headers)
                 .handler(handler)
-                .execute()
+                .execute::<_, U128>(&mut sink_buffer)
         };
 
         // mock response
@@ -507,6 +529,7 @@ mod test {
             "POST",
             "/",
             &[],
+            None,
             b"POST / HTTP/1.1\r\n\r\n",
             &[b"HTTP/1.1 200 OK\r\n\r\n0123456789"],
             200,
@@ -521,6 +544,7 @@ mod test {
             "POST",
             "/",
             &[],
+            None,
             b"POST / HTTP/1.1\r\n\r\n",
             &[b"HTTP/1.1 200 OK\r\n\r\n01234", b"56789"],
             200,
@@ -535,6 +559,7 @@ mod test {
             "POST",
             "/",
             &[],
+            None,
             b"POST / HTTP/1.1\r\n\r\n",
             &[b"HTTP/1.1 200 ", b"OK\r\n\r\n01234", b"56789"],
             200,
@@ -549,7 +574,23 @@ mod test {
             "POST",
             "/",
             &[("Content-Type", "text/json")],
+            None,
             b"POST / HTTP/1.1\r\nContent-Type: text/json\r\n\r\n",
+            &[b"HTTP/1.1 200 OK\r\n\r\n0123456789"],
+            200,
+            "OK",
+            b"0123456789",
+        );
+    }
+
+    #[test]
+    fn simple_send_payload() {
+        assert_http(
+            "POST",
+            "/",
+            &[("Content-Type", "text/json")],
+            Some(b"0123456789"),
+            b"POST / HTTP/1.1\r\nContent-Length: 10\r\nContent-Type: text/json\r\n\r\n0123456789",
             &[b"HTTP/1.1 200 OK\r\n\r\n0123456789"],
             200,
             "OK",
@@ -563,15 +604,17 @@ mod test {
             &b"POST / HTTP/1.1\r\nContent-Type: text/plain\r\n\r\n"[..],
             &b"POST / HTTP/1.1\r\nContent-Type: text/plain\r\n\r\n"[..],
         ];
-        let mock_sink = MockSinkImpl::<U1024>::new(expected);
+        let mut mock_sink = MockSinkImpl::<U1024>::new(expected);
 
-        let con = HttpConnection::<U1024, _>::new(mock_sink);
+        let con = HttpConnection::<U1024>::new();
 
         let con = assert_request(
             con,
+            &mut mock_sink,
             "POST",
             "/",
             &[("Content-Type", "text/plain")],
+            None,
             &[b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n0123456789"],
             false,
             200,
@@ -581,9 +624,11 @@ mod test {
 
         assert_request(
             con,
+            &mut mock_sink,
             "POST",
             "/",
             &[("Content-Type", "text/plain")],
+            None,
             &[b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n0123456789"],
             true,
             200,
@@ -592,19 +637,21 @@ mod test {
         );
     }
 
-    fn assert_request<N, S>(
-        con: HttpConnection<N, S>,
+    fn assert_request<IN, S>(
+        con: HttpConnection<IN>,
+        sink: &mut S,
         method: &'static str,
         path: &'static str,
         headers: &[(&str, &str)],
+        payload: Option<&[u8]>,
         push: &[&[u8]],
         close_after_push: bool,
         code: u16,
         reason: &str,
-        payload: &[u8],
-    ) -> HttpConnection<N, S>
+        expected_payload: &[u8],
+    ) -> HttpConnection<IN>
     where
-        N: ArrayLength<u8>,
+        IN: ArrayLength<u8>,
         S: Sink + MockSink,
     {
         // capture response output
@@ -617,7 +664,7 @@ mod test {
             con.begin(method, path)
                 .headers(&headers)
                 .handler(handler)
-                .execute()
+                .execute_with::<_, U1024>(sink, payload)
         };
 
         // mock response
@@ -632,13 +679,11 @@ mod test {
 
         // close request
 
-        let (mut con, handler) = req.complete();
+        let (con, handler) = req.complete();
 
         // assert sink
 
-        con.with_sink(|sink| {
-            sink.assert();
-        });
+        sink.assert();
 
         // assert response
 
@@ -647,7 +692,7 @@ mod test {
 
         assert_eq!(
             core::str::from_utf8(handler.payload()),
-            core::str::from_utf8(payload)
+            core::str::from_utf8(expected_payload)
         );
 
         assert!(handler.is_complete());
@@ -659,21 +704,32 @@ mod test {
         method: &'static str,
         path: &'static str,
         headers: &[(&str, &str)],
+        payload: Option<&[u8]>,
         expected_sink: &'m [u8],
         push: &[&[u8]],
         code: u16,
         reason: &str,
-        payload: &[u8],
+        expected_payload: &[u8],
     ) {
         // capture sink output
 
         let expected = &[expected_sink];
-        let mock_sink = MockSinkImpl::<U1024>::new(expected);
+        let mut mock_sink = MockSinkImpl::<U1024>::new(expected);
 
-        let con = HttpConnection::<U1024, _>::new(mock_sink);
+        let con = HttpConnection::<U1024>::new();
 
         assert_request(
-            con, method, path, headers, push, true, code, reason, payload,
+            con,
+            &mut mock_sink,
+            method,
+            path,
+            headers,
+            payload,
+            push,
+            true,
+            code,
+            reason,
+            expected_payload,
         );
     }
 
