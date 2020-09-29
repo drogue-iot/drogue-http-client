@@ -93,16 +93,22 @@ where
         method: &str,
         path: &str,
         headers: Option<&[(&str, &str)]>,
+        payload: Option<&[u8]>,
     ) {
         // FIXME: handle write errors
-        let mut sw = SinkWrapper(&mut self.sink);
-        write!(sw, "{} {} HTTP/1.1\r\n", method, path);
-        if let Some(headers) = headers {
-            for header in headers {
-                write!(sw, "{}: {}\r\n", header.0, header.1);
+        {
+            let mut sw = &mut SinkWrapper(&mut self.sink);
+            write!(sw, "{} {} HTTP/1.1\r\n", method, path);
+            if let Some(headers) = headers {
+                for header in headers {
+                    write!(sw, "{}: {}\r\n", header.0, header.1);
+                }
             }
+            write!(sw, "\r\n");
         }
-        write!(sw, "\r\n");
+        if let Some(payload) = payload {
+            self.sink.send(payload);
+        }
     }
 
     #[allow(dead_code)]
@@ -171,9 +177,13 @@ where
         }
     }
 
-    pub fn execute(mut self) -> Request<N, S, R> {
+    pub fn execute(self) -> Request<N, S, R> {
+        self.execute_with(None)
+    }
+
+    pub fn execute_with(mut self, payload: Option<&[u8]>) -> Request<N, S, R> {
         self.connection
-            .send_request(self.method, self.path, self.headers);
+            .send_request(self.method, self.path, self.headers, payload);
         let connection = self.connection;
         let handler = self.handler;
         Request {
@@ -207,6 +217,14 @@ where
     S: Sink,
     R: ResponseHandler,
 {
+    /// Check if the request is processed completely
+    pub fn is_complete(&self) -> bool {
+        match self.state {
+            State::Complete => true,
+            _ => false,
+        }
+    }
+
     fn push(&mut self, data: Result<Option<&[u8]>, ()>) {
         log::debug!("Pushing data: {:?}", data.map(|o| o.map(|b| from_utf8(b))),);
         match self.state {
