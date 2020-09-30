@@ -50,6 +50,8 @@
 //!     println!("Response: {} {}", handler.code(), handler.reason());
 //!     println!("{:?}", from_utf8(handler.payload()));
 //!
+//!     // as we have 'con' back, we could now start the next request
+//!
 //!     Ok(())
 //! }
 //!
