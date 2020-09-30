@@ -8,6 +8,7 @@ description = "An HTTP client for embedded devices, based on drogue-network"
 repository = "https://github.com/drogue-iot/drogue-http-client"
 homepage = "https://blog.drogue.io"
 categories = ["embedded", "nostd"]
+readme = "README.md"
 
 [dependencies]
 

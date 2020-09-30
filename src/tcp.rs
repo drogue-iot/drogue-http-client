@@ -1,16 +1,9 @@
-use crate::{Request, ResponseHandler, Sink};
+//! TCP stack implementation of [`Sink`] and [`Source`].
+
+use crate::{Request, ResponseHandler, Sink, Source};
 use core::str::from_utf8;
 use drogue_network::tcp::TcpStack;
 use heapless::ArrayLength;
-
-pub trait Source {
-    type Error;
-
-    fn pipe_data<IN, R>(&mut self, request: &mut Request<IN, R>) -> Result<(), Self::Error>
-    where
-        IN: ArrayLength<u8>,
-        R: ResponseHandler;
-}
 
 pub struct TcpSocketSinkSource<'tcp, T>
 where

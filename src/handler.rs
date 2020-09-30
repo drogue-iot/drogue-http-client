@@ -1,7 +1,10 @@
+use crate::Response;
+
 use heapless::consts;
 use heapless::String;
 use heapless::{ArrayLength, Vec};
 
+/// A no-op response handler.
 pub struct NoOpResponseHandler;
 
 impl ResponseHandler for NoOpResponseHandler {
@@ -9,18 +12,13 @@ impl ResponseHandler for NoOpResponseHandler {
     fn more_payload(&mut self, _: Result<Option<&[u8]>, ()>) {}
 }
 
-#[derive(Debug)]
-pub struct Response<'a> {
-    pub version: u8,
-    pub code: u16,
-    pub reason: &'a str,
-}
-
+/// A trait handling responses to an HTTP request.
 pub trait ResponseHandler {
     fn response(&mut self, response: Response);
     fn more_payload(&mut self, payload: Result<Option<&[u8]>, ()>);
 }
 
+/// A response handler, that will buffer all data.
 pub struct BufferResponseHandler<N, NR = consts::U128>
 where
     N: ArrayLength<u8>,

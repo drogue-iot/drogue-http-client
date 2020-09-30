@@ -1,8 +1,9 @@
-use crate::{NoOpResponseHandler, Response, ResponseHandler, Sink};
+use crate::{NoOpResponseHandler, ResponseHandler, Sink};
 use core::str::from_utf8;
 use heapless::{ArrayLength, Vec};
 use httparse::Status;
 
+/// An HTTP connection.
 pub struct HttpConnection<IN>
 where
     IN: ArrayLength<u8>,
@@ -15,12 +16,20 @@ impl<IN> HttpConnection<IN>
 where
     IN: ArrayLength<u8>,
 {
+    /// Create a new instance.
+    ///
+    /// **Note:** The connection does not establish a new connection on e.g. a TCP stack. It more
+    /// manages the state of an HTTP connection.
     pub fn new() -> Self {
         HttpConnection {
             inbound: Vec::new(),
         }
     }
 
+    /// Begin a new HTTP request.
+    ///
+    /// The request will only be sent to the sink (server) when one of the "execute" functions
+    /// is being invoked.
     pub fn begin<'req>(
         self,
         method: &'static str,
@@ -37,6 +46,7 @@ where
         }
     }
 
+    /// Begin a new POST HTTP request.
     pub fn post<'req>(self, path: &'static str) -> RequestBuilder<'req, IN, NoOpResponseHandler> {
         self.begin("POST", path)
     }
@@ -97,6 +107,7 @@ where
     }
 }
 
+/// A request builder, which helps to gather all required information before executing the request.
 pub struct RequestBuilder<'req, IN, R>
 where
     IN: ArrayLength<u8>,
@@ -114,11 +125,13 @@ where
     IN: ArrayLength<u8>,
     R: ResponseHandler,
 {
+    /// Set the HTTP headers to send.
     pub fn headers(mut self, headers: &'req [(&'req str, &'req str)]) -> Self {
         self.headers = Some(headers);
         self
     }
 
+    /// Set the handler that will process the response.
     pub fn handler<RN: ResponseHandler>(self, handler: RN) -> RequestBuilder<'req, IN, RN> {
         RequestBuilder {
             connection: self.connection,
@@ -129,6 +142,7 @@ where
         }
     }
 
+    /// Execute the request, without any request payload.
     pub fn execute<S, OUT>(self, sink: &mut S) -> Request<IN, R>
     where
         S: Sink,
@@ -137,6 +151,7 @@ where
         self.execute_with::<S, OUT>(sink, None)
     }
 
+    /// Execute the request, optionally providing some payload.
     pub fn execute_with<S, OUT>(mut self, sink: &mut S, payload: Option<&[u8]>) -> Request<IN, R>
     where
         S: Sink,
@@ -164,6 +179,15 @@ enum State {
     UnlimitedPayload,
 }
 
+/// The HTTP response header.
+#[derive(Debug)]
+pub struct Response<'a> {
+    pub version: u8,
+    pub code: u16,
+    pub reason: &'a str,
+}
+
+/// The ongoing HTTP request.
 pub struct Request<IN, R>
 where
     IN: ArrayLength<u8>,
@@ -184,7 +208,7 @@ where
     IN: ArrayLength<u8>,
     R: ResponseHandler,
 {
-    /// Check if the request is processed completely
+    /// Check if the request is completely processed.
     pub fn is_complete(&self) -> bool {
         match self.state {
             State::Complete => true,
@@ -321,14 +345,17 @@ where
         }
     }
 
+    /// Push more inbound data to the HTTP processing.
     pub fn push_data(&mut self, data: &[u8]) {
         self.push(Ok(Some(data)))
     }
 
+    /// Notify the HTTP processing that the source has closed.
     pub fn push_close(&mut self) {
         self.push(Ok(None))
     }
 
+    /// Stop processing the request, gives back the handler and connection.
     pub fn complete(self) -> (HttpConnection<IN>, R) {
         (self.connection, self.handler)
     }

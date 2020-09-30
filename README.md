@@ -1,13 +1,17 @@
 # Drogue IoT HTTP Client
 
-An HTTP client for embedded systems, based on [drogue-network](https://github.com/drogue-iot/drogue-network).
+[![CI](https://github.com/drogue-iot/drogue-http-client/workflows/CI/badge.svg)](https://github.com/ctron/hagen/actions?query=workflow%3A%22Master+CI%22)
+[![crates.io](https://img.shields.io/crates/v/drogue-http-client.svg)](https://crates.io/crates/drogue-http-client)
+[![docs.rs](https://docs.rs/drogue-http-client/badge.svg)](https://docs.rs/drogue-http-client)
+[![Matrix](https://img.shields.io/matrix/drogue-iot:matrix.org)](https://matrix.to/#/#drogue-iot:matrix.org)
 
+An HTTP client for embedded systems, based on [drogue-network](https://github.com/drogue-iot/drogue-network).
 It is intended to be used in a `#![no_std]` environment, without an allocator. 
+
+## To Do
 
 **NOTE:** While is says "HTTP", it means "something that, with a bit of luck, could be interpreted as HTTP".
 It is far from a full HTTP 1.1 client.
-
-## To Do
 
 * [ ] Handle errors
 * [ ] Implement chunked encoding

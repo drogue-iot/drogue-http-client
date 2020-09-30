@@ -1,13 +1,72 @@
 #![no_std]
 
+//! `drogue-http-client` aims to provide an HTTP client, in constrained `no_std` environment.
+//! Making use of the `drogue-network` API, and its network stack implementations.
+//!
+//! An example could be to use an ESP-01 connected via UART, interfacing with the TCP stack via
+//! `AT` commands, wrapping that stack with a TLS layer from `drogue-tls`, and executing HTTPS
+//! requests on top of that stack.
+//!
+//! # Example
+//!
+//! ~~~no_run
+//! use core::str::from_utf8;
+//!
+//! use heapless::consts;
+//!
+//! use drogue_network::tcp::TcpStack;
+//!
+//! use drogue_http_client::tcp;
+//! use drogue_http_client::*;
+//!
+//! const ENDPOINT_HOST: &'static str = "my-server";
+//! const ENDPOINT_PORT: u16 = 8080;
+//!
+//! # use drogue_http_client::mock;
+//! # fn connect_to_server(host: &str, port: u16) -> (mock::MockStack, mock::MockSocket) {
+//! #     mock::mock_connection()
+//! # }
+//!
+//! fn publish() -> Result<(),()> {
+//!     let (mut network, mut socket) = connect_to_server(ENDPOINT_HOST, ENDPOINT_PORT);
+//!     let mut tcp = tcp::TcpSocketSinkSource::from(&mut network, &mut socket);
+//!
+//!     let con = HttpConnection::<consts::U1024>::new();
+//!
+//!     let handler = BufferResponseHandler::<consts::U512>::new();
+//!
+//!     let mut req = con.post("/my/path")
+//!         .headers(&[
+//!             ("Content-Type", "text/plain"),
+//!             ("Host", ENDPOINT_HOST),
+//!         ])
+//!         .handler(handler)
+//!         .execute_with::<_, consts::U256>(&mut tcp, Some(b"payload"));
+//!
+//!     tcp.pipe_data(&mut req)?;
+//!
+//!     let (con, handler) = req.complete();
+//!
+//!     println!("Response: {} {}", handler.code(), handler.reason());
+//!     println!("{:?}", from_utf8(handler.payload()));
+//!
+//!     Ok(())
+//! }
+//!
+//! ~~~
+
 mod con;
-mod response;
+mod handler;
+#[doc(hidden)]
+pub mod mock;
 mod sink;
+mod source;
 pub mod tcp;
 
 pub use con::*;
-pub use response::*;
+pub use handler::*;
 pub use sink::*;
+pub use source::*;
 
 #[cfg(test)]
 mod test {

@@ -1,8 +1,21 @@
 use core::fmt::Write;
 use heapless::{ArrayLength, Vec};
 
+/// A sink to send HTTP requests to
 pub trait Sink {
     fn send(&mut self, data: &[u8]) -> Result<usize, ()>;
+}
+
+/// A sink implementation for a buffer.
+impl<N> Sink for Vec<u8, N>
+where
+    N: ArrayLength<u8>,
+{
+    fn send(&mut self, data: &[u8]) -> Result<usize, ()> {
+        self.extend_from_slice(data).map_err(|_| ())?;
+
+        Ok(data.len())
+    }
 }
 
 struct SinkWrapper<'a>(&'a mut dyn Sink);
@@ -20,16 +33,5 @@ impl<'a> Write for SinkWrapper<'a> {
         }
 
         Ok(())
-    }
-}
-
-impl<N> Sink for Vec<u8, N>
-where
-    N: ArrayLength<u8>,
-{
-    fn send(&mut self, data: &[u8]) -> Result<usize, ()> {
-        self.extend_from_slice(data).map_err(|_| ())?;
-
-        Ok(data.len())
     }
 }
