@@ -7,6 +7,12 @@ It is intended to be used in a `#![no_std]` environment, without an allocator.
 **NOTE:** While is says "HTTP", it means "something that, with a bit of luck, could be interpreted as HTTP".
 It is far from a full HTTP 1.1 client.
 
+## To Do
+
+* [ ] Handle errors
+* [ ] Implement chunked encoding
+* [ ] Lots more …
+
 ## Example
 
 ~~~rust

@@ -1,9 +1,10 @@
 [package]
 name = "drogue-http-client"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Jens Reimann <jreimann@redhat.com>"]
 edition = "2018"
 license = "Apache-2.0"
+description = "An HTTP client for embedded devices, based on drogue-network"
 
 [dependencies]
 
@@ -19,4 +20,4 @@ nb = "1"
 env_logger = "0.7"
 
 [patch.crates-io]
-drogue-network = { path = "../drogue-network" }
+#drogue-network = { path = "../drogue-network" }
