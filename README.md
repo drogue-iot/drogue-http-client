@@ -1,6 +1,6 @@
 # Drogue IoT HTTP Client
 
-[![CI](https://github.com/drogue-iot/drogue-http-client/workflows/CI/badge.svg)](https://github.com/ctron/hagen/actions?query=workflow%3A%22Master+CI%22)
+[![CI](https://github.com/drogue-iot/drogue-http-client/workflows/CI/badge.svg)](https://github.com/drogue-iot/drogue-http-client/actions?query=workflow%3A%22CI%22)
 [![crates.io](https://img.shields.io/crates/v/drogue-http-client.svg)](https://crates.io/crates/drogue-http-client)
 [![docs.rs](https://docs.rs/drogue-http-client/badge.svg)](https://docs.rs/drogue-http-client)
 [![Matrix](https://img.shields.io/matrix/drogue-iot:matrix.org)](https://matrix.to/#/#drogue-iot:matrix.org)
